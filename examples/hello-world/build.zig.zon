@@ -1,0 +1,14 @@
+.{
+    .name = "hello-world",
+    .version = "0.0.0",
+    .dependencies = .{
+        .@"zig-wii-sdk" = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

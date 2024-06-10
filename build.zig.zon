@@ -1,0 +1,13 @@
+.{
+    .name = "zig-wii-sdk",
+    .version = "0.1.0",
+    .dependencies = .{},
+    .paths = .{
+        "LICENSE",
+        "README.md",
+        "libc.txt",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

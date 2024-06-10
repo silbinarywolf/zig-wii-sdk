@@ -1,0 +1,10 @@
+# only used in experimenting with doing a full-compile via Zig/LLD/LLVM
+# not currently used as of 2024-06-04
+
+include_dir=c:\devkitPro\devkitPPC\powerpc-eabi\include
+sys_include_dir=c:\devkitPro\devkitPPC\powerpc-eabi\include
+#crt_dir=c:\devkitPro\devkitPPC\powerpc-eabi\lib
+crt_dir=c:\devkitPro\devkitPPC\lib\gcc\powerpc-eabi\13.1.0
+msvc_lib_dir=
+kernel32_lib_dir=
+gcc_dir=

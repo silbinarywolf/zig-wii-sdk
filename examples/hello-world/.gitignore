@@ -1,0 +1,5 @@
+/zig-out
+/.zig-cache
+/zig-cache
+# in testing I mounted Dolphins sdcard here to read/write files
+/sdcard
