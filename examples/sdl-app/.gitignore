@@ -1,0 +1,6 @@
+/zig-out
+/.zig-cache
+# legacy zig-cache folder name without the dot
+/zig-cache
+# in testing I mounted Dolphins sdcard here to read/write files
+/sdcard

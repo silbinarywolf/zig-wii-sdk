@@ -1,0 +1,22 @@
+.{
+    .name = "wii-sdl-app",
+    .version = "0.0.0",
+    .dependencies = .{
+        .@"zig-wii-sdk" = .{
+            .path = "../..",
+        },
+        .sdl = .{
+            .url = "https://github.com/silbinarywolf/zig-wii-sdl2/archive/41ac341c543c64064ec4a0de5cb02db6208b86b0.tar.gz",
+            .hash = "1220e2dbb1ac9728d9d440e8757e05bbc6a1616965410e5a91a01fc0a658b013d7f2",
+        },
+        .zigimg = .{
+            .url = "https://github.com/zigimg/zigimg/archive/3a667bdb3d7f0955a5a51c8468eac83210c1439e.tar.gz",
+            .hash = "1220dd654ef941fc76fd96f9ec6adadf83f69b9887a0d3f4ee5ac0a1a3e11be35cf5",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
