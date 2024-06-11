@@ -14,25 +14,11 @@ pub const _errno = struct {
 pub const PATH_MAX = 4096;
 
 pub const mode_t = u32;
-pub const time_t = i64;
+const time_t = i64;
 
 pub const timespec = extern struct {
     tv_sec: time_t,
     tv_nsec: isize,
-
-    pub fn fromTimestamp(tm: wasi.timestamp_t) timespec {
-        const tv_sec: wasi.timestamp_t = tm / 1_000_000_000;
-        const tv_nsec = tm - tv_sec * 1_000_000_000;
-        return .{
-            .tv_sec = @as(time_t, @intCast(tv_sec)),
-            .tv_nsec = @as(isize, @intCast(tv_nsec)),
-        };
-    }
-
-    pub fn toTimestamp(ts: timespec) wasi.timestamp_t {
-        return @as(wasi.timestamp_t, @intCast(ts.tv_sec * 1_000_000_000)) +
-            @as(wasi.timestamp_t, @intCast(ts.tv_nsec));
-    }
 };
 
 pub const STDIN_FILENO = 0;
@@ -123,17 +109,20 @@ const errno_t = enum(u16) {
     _,
 };
 
-const clockid_t = i32;
-
+// devkitPPC\powerpc-eabi\include\time.h
 pub const CLOCK = struct {
-    /// system-wide monotonic clock (aka system time)
-    pub const MONOTONIC: clockid_t = 0;
-    /// system-wide real time clock
-    pub const REALTIME: clockid_t = -1;
-    /// clock measuring the used CPU time of the current process
-    pub const PROCESS_CPUTIME_ID: clockid_t = -2;
-    /// clock measuring the used CPU time of the current thread
-    pub const THREAD_CPUTIME_ID: clockid_t = -3;
+    pub const REALTIME_COARSE = 0;
+    pub const REALTIME = 1;
+    pub const MONOTONIC = 4;
+    pub const PROCESS_CPUTIME_ID = 2;
+    pub const THREAD_CPUTIME_ID = 3;
+    pub const MONOTONIC_RAW = 5;
+    pub const MONOTONIC_COARSE = 6;
+    pub const BOOTTIME = 7;
+    pub const REALTIME_ALARM = 8;
+    pub const BOOTTIME_ALARM = 9;
+    //pub const SGI_CYCLE = 10; // Not defined
+    //pub const TAI = 11; // Not defined
 };
 
 pub const IOV_MAX = 1024;
@@ -150,6 +139,7 @@ pub const S = struct {
     /// in order to line with other OSes.
     pub const IFSOCK = 0x1;
 };
+
 pub const fd_t = i32;
 pub const pid_t = c_int;
 pub const uid_t = u32;
@@ -235,9 +225,9 @@ pub const W_OK = 2;
 pub const R_OK = 4;
 
 pub const SEEK = struct {
-    pub const SET: wasi.whence_t = .SET;
-    pub const CUR: wasi.whence_t = .CUR;
-    pub const END: wasi.whence_t = .END;
+    pub const SET = 0;
+    pub const CUR = 1;
+    pub const END = 2;
 };
 
 pub const nfds_t = usize;

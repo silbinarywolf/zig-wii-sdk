@@ -1,6 +1,7 @@
 pub usingnamespace @cImport({
     // OGC Library
-    // @cInclude("ogcsys.h");
+    @cInclude("ogcsys.h");
+    @cInclude("ogc/lwp_watchdog.h");
     // @cInclude("gccore.h");
     // @cInclude("fat.h");
     // @cInclude("ogc/usbmouse.h");

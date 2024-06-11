@@ -144,6 +144,9 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *Compile {
         .target = target,
         .link_libc = options.link_libc,
         .single_threaded = options.single_threaded,
+        // TODO(jae): 2024-06-12
+        // Polyfill WASI-specific functions if targetting wasi
+        .pic = if (target.result.os.tag == .wasi) true else null,
     });
     compile.* = .{
         .name = main_object.name,
@@ -282,7 +285,18 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile, options: BuildEx
         // wrap calls to "write" in std library so we can monkey patch it and make any STDOUT/STDERR logging
         // call "printf" instead so they appear in Dolphin emulator debug logs
         "-Wl,-wrap,write",
+        // wrap clock_gettime to as otherwise clock_gettime just returns an error code which just causes a crash if
+        // you use std.time.Timer.start()
+        "-Wl,-wrap,clock_gettime",
     }));
+
+    // add optimization flag
+    if (exe.root_module.optimize) |optimize| {
+        switch (optimize) {
+            .ReleaseFast => gcc.addArg("-O2"),
+            else => {},
+        }
+    }
 
     // Output *.map file
     // -Wl,-Map,zig.map
@@ -293,6 +307,11 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile, options: BuildEx
         const map_file = b.addInstallBinFile(map_output, map_basename);
         b.getInstallStep().dependOn(&map_file.step);
     }
+
+    // EXPERIMENTAL: Compile with "addObject" using .ofmt = .c.
+    // Currently has error: error: too many arguments to function 'openat'
+    // const zig_header_path: std.Build.LazyPath = .{ .cwd_relative = "C:/zig/current/lib" };
+    // gcc.addPrefixedDirectoryArg("-I", zig_header_path);
 
     // add macros and system include paths
     {
@@ -471,9 +490,13 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
         const gcc = b.addSystemCommand(&(.{
             devkitPro.path(b, "devkitPPC/bin/powerpc-eabi-gcc" ++ ext).getPath(b),
         }));
-        gcc.addArgs(&(.{
-            "-g",
-        }));
+        gcc.addArg("-g");
+        if (lib.root_module.optimize) |optimize| {
+            switch (optimize) {
+                .ReleaseFast => gcc.addArg("-O2"),
+                else => {},
+            }
+        }
         gcc.addArg("-DGEKKO");
         for (lib.root_module.c_macros.items) |c_macro| {
             gcc.addArg(c_macro);
