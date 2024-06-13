@@ -439,21 +439,20 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
         @panic("compiling Zig code as a static library is not supported");
     }
 
-    var c_files = std.ArrayList(std.Build.LazyPath).init(b.allocator);
+    var c_source_list = std.ArrayList(std.Build.Module.CSourceFile).init(b.allocator);
     var system_libs = std.ArrayList(std.Build.Module.SystemLib).init(b.allocator);
     for (lib.root_module.link_objects.items) |link_object| {
         switch (link_object) {
             .c_source_file => |c_source_file| {
-                // TODO(jae): 2024-06-07
-                // Also append "flags" for gcc
-                try c_files.append(c_source_file.file);
+                try c_source_list.append(c_source_file.*);
             },
             .c_source_files => |c_source_files| {
-                // TODO(jae): 2024-06-07
-                // Also append "flags" for gcc
                 const root = c_source_files.root;
                 for (c_source_files.files) |c_file| {
-                    try c_files.append(root.path(b, c_file));
+                    try c_source_list.append(.{
+                        .file = root.path(b, c_file),
+                        .flags = c_source_files.flags,
+                    });
                 }
             },
             .system_lib => |sys_lib| {
@@ -464,7 +463,7 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
             },
         }
     }
-    for (c_files.items) |c_file| {
+    for (c_source_list.items) |c_source| {
         const gcc = b.addSystemCommand(&(.{
             devkitPro.path(b, "devkitPPC/bin/powerpc-eabi-gcc" ++ ext).getPath(b),
         }));
@@ -512,11 +511,17 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
             }
         }
 
+        // Add C source flags
+        for (c_source.flags) |flag| {
+            gcc.addArg(flag);
+        }
+
         // make name pretty
         // ie. "sdl: compile SDL_string.c"
-        const basename = std.fs.path.basename(switch (c_file) {
-            .dependency => |dep| if (dep.sub_path.len != 0) dep.sub_path else c_file.getDisplayName(),
-            else => c_file.getDisplayName(),
+        const c_source_file = c_source.file;
+        const basename = std.fs.path.basename(switch (c_source_file) {
+            .dependency => |dep| if (dep.sub_path.len != 0) dep.sub_path else c_source_file.getDisplayName(),
+            else => c_source_file.getDisplayName(),
         });
 
         // Output binary
@@ -524,7 +529,7 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
         gcc.addArgs(&(.{"-o"}));
         const o_basename = try std.mem.concat(b.allocator, u8, &[_][]const u8{ basename, ".o" });
         const o_output = gcc.addOutputFileArg(o_basename);
-        gcc.addFileArg(c_file);
+        gcc.addFileArg(c_source.file);
 
         // make name pretty
         // ie. "sdl: compile SDL_string.c"
