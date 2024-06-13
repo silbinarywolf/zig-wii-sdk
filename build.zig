@@ -37,16 +37,19 @@ pub fn devkitProPath(b: *std.Build) !std.Build.LazyPath {
                     break :blk install_location;
                 },
                 else => {
-                    const install_location = try std.process.getEnvVarOwned(b.allocator, "DEVKITPRO");
+                    const install_location = try std.process.getEnvVarOwned(b.allocator, "DEVKITPRO") catch |err| switch (err) {
+                        error.EnvironmentVariableNotFound => break :detect_path,
+                        else => err,
+                    };
                     break :blk install_location;
                 },
             }
         }
-        std.debug.print("Must provide \"devkitpro\" path", .{});
+        std.debug.print("Set DEVKITPRO in your environment variables or add \"devkitpro\" to your zig build settings.", .{});
         return error.MissingDevkitProPath;
     };
     if (devkitProInstallPath.len == 0) {
-        std.debug.print("Must provide \"devkitpro\" path", .{});
+        std.debug.print("Cannot have empty \"devkitpro\" path", .{});
         return error.MissingDevkitProPath;
     }
     // TODO: Check if folders "devkitPPC", "libogc"
