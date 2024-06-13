@@ -281,20 +281,8 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
                     try system_libraries.append(b.allocator, system_lib.name);
                     remove_link_object = true;
                 },
-                .c_source_file => {
-                    @panic("c_source_file not supported for executable");
-                },
-                .c_source_files => {
-                    @panic("c_source_files not supported for executable");
-                },
-                .static_path => {
-                    @panic("static_path not supported for executable");
-                },
-                .assembly_file => {
-                    @panic("assembly_file not supported for executable");
-                },
-                .win32_resource_file => {
-                    @panic("win32_resource_file not supported for Wii executable");
+                else => {
+                    std.debug.panic("{s} not supported for executable", .{@tagName(link_object)});
                 },
             }
             if (remove_link_object) {
@@ -303,13 +291,6 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
             }
             i += 1;
         }
-
-        // addStepDependenciesOnly(m, &other.step);
-        // if (other.rootModuleTarget().os.tag == .windows and other.isDynamicLibrary()) {
-        //     _ = other.getEmittedImplib(); // Indicate dependency on the outputted implib.
-        // }
-        // m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
-        // m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
     }
 
     const gcc = b.addSystemCommand(&(.{
@@ -478,17 +459,8 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
             .system_lib => |sys_lib| {
                 try system_libs.append(sys_lib);
             },
-            .static_path => {
-                @panic("static_path not supported");
-            },
-            .other_step => {
-                @panic("other_step not supported");
-            },
-            .assembly_file => {
-                @panic("assembly_file not supported");
-            },
-            .win32_resource_file => {
-                @panic("win32_resource_file not supported");
+            else => {
+                std.debug.panic("{s} not supported for static library", .{@tagName(link_object)});
             },
         }
     }
@@ -534,14 +506,8 @@ pub fn buildStaticLib(b: *std.Build, lib: *std.Build.Step.Compile) !StaticLib {
                     };
                     gcc.addPrefixedDirectoryArg("-I", path.dirname());
                 },
-                // TODO: Exhaustive checking and erroring
-                // path_system: LazyPath,
-                // path_after: LazyPath,
-                // framework_path: LazyPath,
-                // framework_path_system: LazyPath,
-                // other_step: *Step.Compile,
                 else => {
-                    continue;
+                    std.debug.panic("{s} not supported for static library", .{@tagName(include_dir)});
                 },
             }
         }
@@ -746,6 +712,7 @@ fn addRuntimeObject(b: *std.Build, exe: *std.Build.Step.Compile) !*std.Build.Ste
 //     bin_file.addStepDependencies(&run.step);
 // }
 
+/// cwd is the working directory of the zig-wii-sdk
 const cwd = _cwd();
 
 inline fn _cwd() []const u8 {
