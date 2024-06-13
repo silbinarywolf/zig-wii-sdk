@@ -3,18 +3,7 @@ const builtin = @import("builtin");
 const wii = @import("zig-wii-sdk");
 
 pub fn build(b: *std.Build) !void {
-    const target = b.resolveTargetQuery(.{
-        .cpu_arch = .powerpc,
-        // NOTE(jae): 2024-06-10
-        // used ".wasi" hack to use std.fs.openFile, currently std.fs.createFile won't work with .wasi
-        //
-        // Ideally we'd just provide our own C override like this PR here:
-        // PR here: https://github.com/ziglang/zig/pull/20241
-        .os_tag = .wasi,
-        .abi = .eabi,
-        .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" },
-        .cpu_features_add = std.Target.powerpc.featureSet(&.{.hard_float}),
-    });
+    const target = wii.standardWiiTargetOptions(b);
     const optimize: std.builtin.OptimizeMode = .ReleaseSafe; // = b.standardOptimizeOption(.{});
 
     const exe = wii.addExecutable(b, .{
@@ -49,7 +38,7 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("zigwii", zig_wii_sdk_dep.module("zigwii"));
 
     // Build *.elf app with gcc
-    const elf_output = exe.addInstallElf();
+    const elf_output = wii.addInstallWiiArtifact(exe);
 
     // Convert elf to dol file
     // const dol_output = try wii.addInstallElf2Dol(b, elf_output);

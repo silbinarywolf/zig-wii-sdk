@@ -12,7 +12,9 @@ comptime {
     @export(write, .{ .name = "__wrap_write", .linkage = .weak });
     @export(clock_gettime, .{ .name = "__wrap_clock_gettime", .linkage = .weak });
     if (builtin.os.tag == .wasi) {
-        @export(wasi_errno, .{ .name = "errno", .linkage = .strong });
+        @export(stdwasi.errno, .{ .name = "errno", .linkage = .weak });
+        @export(stdwasi.clock_time_get, .{ .name = "clock_time_get", .linkage = .weak });
+        // @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .strong });
     }
 }
 
@@ -27,37 +29,40 @@ fn openat(dirfd: c_int, pathname: [*c]const u8, flags: c_int, _: std.posix.mode_
 
 /// printf_buffer collects writes to printf until it ends with a newline character, then
 /// we call c.printf so it'll print nicely in the Dolphin emulator console on one line.
-var printf_buffer: [64]u8 = undefined;
-var printf_buffer_len: u32 = 0;
+// var printf_buffer = std.BoundedArray(u8, 64){};
 
 /// wrap "write" to get printf debugging, if the "fd" is STDOUT or STDERR we call print.
 /// otherwise fallback to writing to the file descriptor
 fn write(fd: i32, buf_ptr: [*]const u8, count: usize) callconv(.C) isize {
     if (fd == STDOUT_FILENO or fd == STDERR_FILENO) {
-        if (!builtin.single_threaded) {
-            return c.printf("%.*s", count, buf_ptr);
-        }
-        // If buffer is over current remaining print buffer size then
-        // empty the print buffer and print current buffer
-        const remaining_buffer_len = printf_buffer[printf_buffer_len..].len;
-        const buf_len = count;
-        if (buf_len >= remaining_buffer_len) {
-            // https://stackoverflow.com/a/3767300
-            _ = c.printf("%.*s%.*s", printf_buffer_len, printf_buffer[0..printf_buffer_len].ptr, count, buf_ptr);
-            printf_buffer_len = 0;
-            return @intCast(count);
-        }
-        // If have space, place in the buffer
-        const remaining_buffer = printf_buffer[printf_buffer_len..];
-        const buf = buf_ptr[0..count];
-        @memcpy(remaining_buffer, buf);
-        printf_buffer_len += count;
-        if (buf[buf.len - 1] == '\n') {
-            // https://stackoverflow.com/a/3767300
-            _ = c.printf("%.*s", printf_buffer_len, printf_buffer[0..printf_buffer_len].ptr);
-            printf_buffer_len = 0;
-        }
-        return @intCast(count);
+        return c.printf("%.*s", count, buf_ptr);
+        // NOTE(jae): 2024-06-13
+        // std.debug.print doesn't end with \n but other log functions do...
+        // so this logic isn't great.
+        //
+        // if (!builtin.single_threaded) {
+        //     return c.printf("%.*s", count, buf_ptr);
+        // }
+        // const buf = buf_ptr[0..count];
+        // printf_buffer.appendSlice(buf) catch |err| switch (err) {
+        //     error.Overflow => {
+        //         // If buffer is over current remaining print buffer size then
+        //         // empty the print buffer and print current buffer
+        //         if (printf_buffer.len == 0) {
+        //             return c.printf("%.*s", count, buf_ptr);
+        //         }
+        //         // https://stackoverflow.com/a/3767300
+        //         _ = c.printf("%.*s%.*s", @as(u32, @intCast(printf_buffer.len)), printf_buffer.buffer[0..].ptr, count, buf_ptr);
+        //         printf_buffer.len = 0;
+        //         return @intCast(count);
+        //     },
+        // };
+        // if (printf_buffer.buffer[printf_buffer.len - 1] == '\n') {
+        //     // https://stackoverflow.com/a/3767300
+        //     _ = c.printf("%.*s", @as(u32, @intCast(printf_buffer.len)), printf_buffer.buffer[0..].ptr);
+        //     printf_buffer.len = 0;
+        // }
+        // return @intCast(count);
     }
     return struct {
         extern fn __real_write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
@@ -79,22 +84,25 @@ fn ticks_to_nanosecs(ticks: u64) u64 {
     return @divFloor(ticks * 8000, TB_TIMER_CLOCK / 125);
 }
 
-var ticks_started = false;
-var ticks_start: u64 = 0;
+var clock_has_initialized = false;
+var clock_start: u64 = 0;
+
+fn clock_init() void {
+    if (!clock_has_initialized) {
+        clock_start = c.gettime();
+        clock_has_initialized = true;
+    }
+}
 
 /// wrap clock_gettime to as otherwise clock_gettime just returns an error code which just causes a crash if
 /// you use std.time.Timer.start()
 fn clock_gettime(clk_id: c_int, tp: *std.posix.timespec) callconv(.C) c_int {
     const CLOCK_MONOTONIC = if (builtin.os.tag == .wasi) @intFromEnum(std.posix.CLOCK.MONOTONIC) else std.posix.CLOCK.MONOTONIC;
     if (clk_id == CLOCK_MONOTONIC) {
-        if (!ticks_started) {
-            // Sometimes c.gettime returns 0 so take a page from the SDL Wii port and store
-            // the first c.gettime call
-            // https://github.com/devkitPro/SDL/blob/c82262c2a361781d88c7bb1995b3b3f183cc514e/src/timer/ogc/SDL_systimer.c#L39
-            ticks_start = c.gettime();
-            ticks_started = true;
-        }
-        const now = c.gettime() - ticks_start;
+        // TODO(jae): Consider making this happen at app startup with a function instead
+        clock_init();
+
+        const now = c.gettime() - clock_start;
         tp.tv_sec = @intCast(ticks_to_secs(now) + 946684800);
         tp.tv_nsec = @intCast(@mod(ticks_to_nanosecs(now), TB_NSPERSEC));
         return 0;
@@ -104,13 +112,40 @@ fn clock_gettime(clk_id: c_int, tp: *std.posix.timespec) callconv(.C) c_int {
     }.__real_clock_gettime(clk_id, tp);
 }
 
-/// wasi_errno calls the underlying Wii toolchain errno for builds targetting .wasi
-fn wasi_errno() callconv(.C) *c_int {
-    const _errno = struct {
-        extern fn __errno() *c_int;
-    }.__errno;
-    return _errno();
-}
+/// provide os.tag == .wasi functions
+const stdwasi = struct {
+    const wasi = std.os.wasi;
+
+    /// errno calls the underlying Wii toolchain errno for builds targetting .wasi
+    fn errno() callconv(.C) *c_int {
+        const _errno = struct {
+            extern fn __errno() *c_int;
+        }.__errno;
+        return _errno();
+    }
+
+    /// clock_time_get calls gettime() from the Wii toolchain to get the nanoseconds
+    fn clock_time_get(clock_id: wasi.clockid_t, precision: wasi.timestamp_t, timestamp: *wasi.timestamp_t) callconv(.C) wasi.errno_t {
+        // TODO(jae): Consider making this happen at app startup with a function instead
+        clock_init();
+
+        _ = clock_id; // autofix
+        _ = precision; // autofix
+        const now = c.gettime() - clock_start;
+        timestamp.* = ticks_to_nanosecs(now);
+        return wasi.errno_t.SUCCESS;
+    }
+
+    // TODO: Implement for wasi
+    // fn fd_readdir(fd: wasi.fd_t, buf: [*]u8, buf_len: usize, cookie: wasi.dircookie_t, bufused: *usize) callconv(.C) wasi.errno_t {
+    //     _ = fd; // autofix
+    //     _ = buf; // autofix
+    //     _ = buf_len; // autofix
+    //     _ = cookie; // autofix
+    //     _ = bufused; // autofix
+    //     return wasi.errno_t.FAULT;
+    // }
+};
 
 // NOTE(jae): 2024-06-05
 // Consider adding pthread polyfill based on https://wiibrew.org/wiki/Pthread
