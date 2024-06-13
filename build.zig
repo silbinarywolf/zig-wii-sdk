@@ -65,6 +65,22 @@ pub fn devkitProPath(b: *std.Build) !std.Build.LazyPath {
     return devkitPro;
 }
 
+/// Gives standard options for targetting Wii hardware
+pub fn standardWiiTargetOptions(b: *std.Build) std.Build.ResolvedTarget {
+    return b.resolveTargetQuery(.{
+        .cpu_arch = .powerpc,
+        // NOTE(jae): 2024-06-10
+        // used ".wasi" hack to use std.fs.openFile, currently std.fs.createFile won't work with .wasi
+        //
+        // Ideally we'd just provide our own C override like this PR here:
+        // PR here: https://github.com/ziglang/zig/pull/20241
+        .os_tag = .wasi,
+        .abi = .eabi,
+        .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" },
+        .cpu_features_add = std.Target.powerpc.featureSet(&.{.hard_float}),
+    });
+}
+
 pub const StaticLib = struct {
     path: std.Build.LazyPath,
     basename: []const u8,
@@ -75,39 +91,13 @@ pub const StaticLib = struct {
     }
 };
 
-const Compile = struct {
-    name: []const u8,
-    main_object: *std.Build.Step.Compile,
-    static_libraries: std.ArrayListUnmanaged(StaticLib),
-    system_libraries: std.ArrayListUnmanaged([]const u8),
-
-    /// root_module points to self for convenience when calling addImport / linkLibrary / etc
-    /// this is so its closer to the Zig API
-    root_module: *Compile,
-
-    pub fn addImport(self: *Compile, name: []const u8, module: *std.Build.Module) void {
-        self.main_object.root_module.addImport(name, module);
+pub fn addInstallWiiArtifact(compile: *std.Build.Step.Compile) std.Build.LazyPath {
+    const b = compile.root_module.owner;
+    if (compile.kind != .obj) {
+        @panic("expected Wii compile step artifact to be .obj");
     }
-
-    pub fn linkLibrary(self: *Compile, lib: *std.Build.Step.Compile) void {
-        const b = self.main_object.root_module.owner;
-        const built_lib = buildStaticLib(b, lib) catch |err| @panic(@errorName(err));
-        self.static_libraries.append(b.allocator, built_lib) catch |err| @panic(@errorName(err));
-    }
-
-    pub fn linkSystemLibrary(self: *Compile, system_lib_name: []const u8) void {
-        const b = self.main_object.root_module.owner;
-        self.system_libraries.append(b.allocator, system_lib_name) catch @panic("OOM");
-    }
-
-    pub fn addInstallElf(self: *Compile) std.Build.LazyPath {
-        const b = self.main_object.root_module.owner;
-        return buildExecutable(b, self.main_object, .{
-            .libraries = self.static_libraries.items,
-            .system_libraries = self.system_libraries.items,
-        }) catch |err| @panic(@errorName(err));
-    }
-};
+    return buildExecutable(b, compile) catch |err| @panic(@errorName(err));
+}
 
 pub const ExecutableOptions = struct {
     name: []const u8,
@@ -134,10 +124,9 @@ pub const ExecutableOptions = struct {
     // zig_lib_dir: ?std.Build.LazyPath = null,
 };
 
-pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *Compile {
+pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.Compile {
     const target = options.target;
-    const compile = b.allocator.create(Compile) catch @panic("OOM");
-    const main_object = b.addObject(.{
+    return b.addObject(.{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .optimize = options.optimize,
@@ -148,14 +137,6 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *Compile {
         // Polyfill WASI-specific functions if targetting wasi
         .pic = if (target.result.os.tag == .wasi) true else null,
     });
-    compile.* = .{
-        .name = main_object.name,
-        .main_object = main_object,
-        .root_module = compile,
-        .static_libraries = .{},
-        .system_libraries = .{},
-    };
-    return compile;
 }
 
 /// getOutputPath
@@ -260,8 +241,76 @@ pub const BuildExecutableOptions = struct {
 };
 
 /// build .elf executable with devkitPro's GCC compiler
-fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile, options: BuildExecutableOptions) !std.Build.LazyPath {
+fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyPath {
     const devkitPro = try devkitProPath(b);
+
+    // extract static and system libraries and compile seperately
+    var static_libraries = std.ArrayListUnmanaged(StaticLib){};
+    var system_libraries = std.ArrayListUnmanaged([]const u8){};
+    {
+        var i: usize = 0;
+        while (i < exe.root_module.link_objects.items.len) {
+            var remove_link_object = false;
+            const link_object = exe.root_module.link_objects.items[i];
+            switch (link_object) {
+                .other_step => |other_step| {
+                    switch (other_step.kind) {
+                        .lib => {
+                            // add static library
+                            const lib = try buildStaticLib(b, other_step);
+                            try static_libraries.append(b.allocator, lib);
+
+                            // remove this static library from depending steps
+                            for (exe.root_module.depending_steps.keys()) |compile| {
+                                var j: usize = 0;
+                                while (j < compile.step.dependencies.items.len) : (j += 1) {
+                                    const dep = compile.step.dependencies.items[j];
+                                    if (dep == &other_step.step) {
+                                        _ = compile.step.dependencies.orderedRemove(j);
+                                        break;
+                                    }
+                                }
+                            }
+                            remove_link_object = true;
+                        },
+                        .obj => @panic(".obj on executable not supported"),
+                        .exe, .@"test" => @panic(".exe or .test on executable not supported"),
+                    }
+                },
+                .system_lib => |system_lib| {
+                    try system_libraries.append(b.allocator, system_lib.name);
+                    remove_link_object = true;
+                },
+                .c_source_file => {
+                    @panic("c_source_file not supported for executable");
+                },
+                .c_source_files => {
+                    @panic("c_source_files not supported for executable");
+                },
+                .static_path => {
+                    @panic("static_path not supported for executable");
+                },
+                .assembly_file => {
+                    @panic("assembly_file not supported for executable");
+                },
+                .win32_resource_file => {
+                    @panic("win32_resource_file not supported for Wii executable");
+                },
+            }
+            if (remove_link_object) {
+                _ = exe.root_module.link_objects.orderedRemove(i);
+                continue; // don't increment "i"
+            }
+            i += 1;
+        }
+
+        // addStepDependenciesOnly(m, &other.step);
+        // if (other.rootModuleTarget().os.tag == .windows and other.isDynamicLibrary()) {
+        //     _ = other.getEmittedImplib(); // Indicate dependency on the outputted implib.
+        // }
+        // m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
+        // m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
+    }
 
     const gcc = b.addSystemCommand(&(.{
         devkitPro.path(b, "devkitPPC/bin/powerpc-eabi-gcc" ++ ext).getPath(b),
@@ -343,65 +392,22 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile, options: BuildEx
     // at time of writing is devkitPro being installed
     // gcc.addPrefixedDirectorySourceArg("-L", devkitPro.path(b, "portlibs/wii/lib")); // add ported libraries
 
-    var i: usize = 0;
-    while (i < exe.root_module.link_objects.items.len) {
-        switch (exe.root_module.link_objects.items[i]) {
-            .c_source_file => |c_source_file| {
-                _ = c_source_file; // autofix
-                @panic("c_source_file not supported");
-            },
-            .c_source_files => |c_source_files| {
-                _ = c_source_files; // autofix
-                @panic("c_source_files not supported");
-            },
-            .system_lib => |sys_lib| {
-                _ = sys_lib; // autofix
-                @panic("system_lib not supported");
-            },
-            .static_path => {
-                @panic("static_path not supported");
-            },
-            .other_step => |other_step| {
-                _ = other_step; // autofix
-                @panic("other_step not supported");
-                // // NOTE(jae): 2024-06-09
-                // // Currently we assume this step is a "linkLibrary" step
-                // const lib_output = try buildStaticLib(b, other_step);
-                // gcc.addPrefixedDirectorySourceArg("-L", lib_output.dirname());
-                // const lib_arg = std.fmt.allocPrint(b.allocator, "-l:{s}", .{std.fs.path.basename(lib_output.basename)}) catch @panic("OOM");
-                // gcc.addArg(lib_arg);
-                // try static_libs.append(lib_output);
-
-                // // remove this from the build of this file
-                // _ = exe.root_module.link_objects.orderedRemove(i);
-                // continue;
-            },
-            .assembly_file => {
-                @panic("assembly_file not supported");
-            },
-            .win32_resource_file => {
-                @panic("win32_resource_file not supported");
-            },
-        }
-        i += 1;
-    }
-
     // Link libraries
-    for (options.libraries) |static_lib| {
+    for (static_libraries.items) |static_lib| {
         gcc.addPrefixedDirectorySourceArg("-L", static_lib.dirname());
         const lib_arg = std.fmt.allocPrint(b.allocator, "-l:{s}", .{std.fs.path.basename(static_lib.basename)}) catch @panic("OOM");
         gcc.addArg(lib_arg);
     }
 
     // Link system libraries defined on the libraries
-    for (options.libraries) |static_lib| {
+    for (static_libraries.items) |static_lib| {
         for (static_lib.system_libs.items) |system_lib| {
             const lib_arg = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "-l", system_lib.name });
             gcc.addArg(lib_arg);
         }
     }
     // Link system libraries on root module
-    for (options.system_libraries) |system_library| {
+    for (system_libraries.items) |system_library| {
         const lib_arg = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "-l", system_library });
         gcc.addArg(lib_arg);
     }

@@ -27,37 +27,40 @@ fn openat(dirfd: c_int, pathname: [*c]const u8, flags: c_int, _: std.posix.mode_
 
 /// printf_buffer collects writes to printf until it ends with a newline character, then
 /// we call c.printf so it'll print nicely in the Dolphin emulator console on one line.
-var printf_buffer: [64]u8 = undefined;
-var printf_buffer_len: u32 = 0;
+// var printf_buffer = std.BoundedArray(u8, 64){};
 
 /// wrap "write" to get printf debugging, if the "fd" is STDOUT or STDERR we call print.
 /// otherwise fallback to writing to the file descriptor
 fn write(fd: i32, buf_ptr: [*]const u8, count: usize) callconv(.C) isize {
     if (fd == STDOUT_FILENO or fd == STDERR_FILENO) {
-        if (!builtin.single_threaded) {
-            return c.printf("%.*s", count, buf_ptr);
-        }
-        // If buffer is over current remaining print buffer size then
-        // empty the print buffer and print current buffer
-        const remaining_buffer_len = printf_buffer[printf_buffer_len..].len;
-        const buf_len = count;
-        if (buf_len >= remaining_buffer_len) {
-            // https://stackoverflow.com/a/3767300
-            _ = c.printf("%.*s%.*s", printf_buffer_len, printf_buffer[0..printf_buffer_len].ptr, count, buf_ptr);
-            printf_buffer_len = 0;
-            return @intCast(count);
-        }
-        // If have space, place in the buffer
-        const remaining_buffer = printf_buffer[printf_buffer_len..];
-        const buf = buf_ptr[0..count];
-        @memcpy(remaining_buffer, buf);
-        printf_buffer_len += count;
-        if (buf[buf.len - 1] == '\n') {
-            // https://stackoverflow.com/a/3767300
-            _ = c.printf("%.*s", printf_buffer_len, printf_buffer[0..printf_buffer_len].ptr);
-            printf_buffer_len = 0;
-        }
-        return @intCast(count);
+        return c.printf("%.*s", count, buf_ptr);
+        // NOTE(jae): 2024-06-13
+        // std.debug.print doesn't end with \n but other log functions do...
+        // so this logic isn't great.
+        //
+        // if (!builtin.single_threaded) {
+        //     return c.printf("%.*s", count, buf_ptr);
+        // }
+        // const buf = buf_ptr[0..count];
+        // printf_buffer.appendSlice(buf) catch |err| switch (err) {
+        //     error.Overflow => {
+        //         // If buffer is over current remaining print buffer size then
+        //         // empty the print buffer and print current buffer
+        //         if (printf_buffer.len == 0) {
+        //             return c.printf("%.*s", count, buf_ptr);
+        //         }
+        //         // https://stackoverflow.com/a/3767300
+        //         _ = c.printf("%.*s%.*s", @as(u32, @intCast(printf_buffer.len)), printf_buffer.buffer[0..].ptr, count, buf_ptr);
+        //         printf_buffer.len = 0;
+        //         return @intCast(count);
+        //     },
+        // };
+        // if (printf_buffer.buffer[printf_buffer.len - 1] == '\n') {
+        //     // https://stackoverflow.com/a/3767300
+        //     _ = c.printf("%.*s", @as(u32, @intCast(printf_buffer.len)), printf_buffer.buffer[0..].ptr);
+        //     printf_buffer.len = 0;
+        // }
+        // return @intCast(count);
     }
     return struct {
         extern fn __real_write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
