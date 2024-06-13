@@ -12,8 +12,8 @@ comptime {
     @export(write, .{ .name = "__wrap_write", .linkage = .weak });
     @export(clock_gettime, .{ .name = "__wrap_clock_gettime", .linkage = .weak });
     if (builtin.os.tag == .wasi) {
-        @export(stdwasi.errno, .{ .name = "errno", .linkage = .strong });
-        @export(stdwasi.clock_time_get, .{ .name = "clock_time_get", .linkage = .strong });
+        @export(stdwasi.errno, .{ .name = "errno", .linkage = .weak });
+        @export(stdwasi.clock_time_get, .{ .name = "clock_time_get", .linkage = .weak });
         // @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .strong });
     }
 }
