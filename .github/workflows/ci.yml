@@ -11,11 +11,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # - name: Setup Zig
-    #     uses: goto-bus-stop/setup-zig@v1
-    #     with:
-    #       version: "0.13.0"
+    - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: "0.13.0"
 
-    # - name: Build hello world example
-    #     run: zig build
-    #     working-directory: examples/hello-world
+    - name: Build hello world example
+        run: zig build
+        working-directory: examples/hello-world
