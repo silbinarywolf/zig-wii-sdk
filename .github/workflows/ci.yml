@@ -7,7 +7,7 @@ jobs:
     name: Build Wii example
     strategy:
       matrix:
-        zig: ["0.12.0", "0.13.0"]
+        zig: ["0.13.0"]
     runs-on: ubuntu-latest
     container: devkitpro/devkitppc:latest
  
@@ -20,9 +20,9 @@ jobs:
         version: ${{matrix.zig}}
 
     - name: Build hello-world example
-      run: zig build
+      run: zig build --verbose
       working-directory: examples/hello-world
 
     - name: Build sdl-app example
-      run: zig build
+      run: zig build --verbose
       working-directory: examples/sdl-app
