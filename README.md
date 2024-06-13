@@ -1,5 +1,7 @@
 # Zig Wii SDK
 
+![Continuous integration](https://github.com/silbinarywolf/zig-wii-sdk/actions/workflows/ci.yml/badge.svg)
+
 This library provides build and runtime functions for running Zig applications on the Wii by utilizing the [devkitPro](https://devkitpro.org/wiki/About) toolchain.
 
 ## Requirements
