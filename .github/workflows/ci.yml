@@ -5,8 +5,11 @@ on: [push, pull_request]
 jobs:
   build:
     name: Build Wii example
+    strategy:
+      matrix:
+        zig: ["0.12.0", "0.13.0"]
     runs-on: ubuntu-latest
-    #container: devkitpro/devkitppc:latest
+    container: devkitpro/devkitppc:latest
  
     steps:
     - uses: actions/checkout@v4
@@ -14,7 +17,7 @@ jobs:
     - name: Setup Zig
       uses: goto-bus-stop/setup-zig@v1
       with:
-        version: "0.13.0"
+        version: ${{matrix.zig}}
 
     - name: Build hello-world example
       run: zig build
