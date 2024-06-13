@@ -39,7 +39,7 @@ pub fn devkitProPath(b: *std.Build) !std.Build.LazyPath {
                 else => {
                     const install_location = std.process.getEnvVarOwned(b.allocator, "DEVKITPRO") catch |err| switch (err) {
                         error.EnvironmentVariableNotFound => break :detect_path,
-                        else => err,
+                        else => return err,
                     };
                     break :blk install_location;
                 },
