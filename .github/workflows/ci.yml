@@ -2,12 +2,11 @@ name: CI
 
 on: [push, pull_request]
 
-#
 jobs:
   build:
-    name: ubuntu-latest
+    name: Build Wii example
     runs-on: ubuntu-latest
-    container: devkitpro/devkitppc:latest
+    #container: devkitpro/devkitppc:latest
  
     steps:
     - uses: actions/checkout@v4
@@ -17,6 +16,10 @@ jobs:
       with:
         version: "0.13.0"
 
-    - name: Build hello world example
+    - name: Build hello-world example
       run: zig build
       working-directory: examples/hello-world
+
+    - name: Build sdl-app example
+      run: zig build
+      working-directory: examples/sdl-app
