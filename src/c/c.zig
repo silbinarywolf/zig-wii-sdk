@@ -11,5 +11,7 @@ pub usingnamespace @cImport({
     // C library
     @cInclude("stdio.h");
     @cInclude("fcntl.h");
+    @cInclude("unistd.h");
+    @cInclude("errno.h");
     // @cInclude("dirent.h");
 });

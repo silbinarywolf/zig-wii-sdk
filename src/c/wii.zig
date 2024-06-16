@@ -11,7 +11,8 @@ pub const _errno = struct {
     extern fn __errno() *c_int;
 }.__errno;
 
-pub const PATH_MAX = 4096;
+/// powerpc-eabi\include\sys\syslimits.h
+pub const PATH_MAX = 1024;
 
 pub const mode_t = u32;
 const time_t = i64;
@@ -26,86 +27,316 @@ pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
 pub const E = errno_t;
+
+/// errno_t copied from linux.zig and modified
+/// to match powerpc-eabi\include\sys\errno.h
 const errno_t = enum(u16) {
+    /// No error occurred.
+    /// Same code used for `NSROK`.
     SUCCESS = 0,
-    @"2BIG" = 1,
-    ACCES = 2,
-    ADDRINUSE = 3,
-    ADDRNOTAVAIL = 4,
-    AFNOSUPPORT = 5,
-    /// This is also the error code used for `WOULDBLOCK`.
-    AGAIN = 6,
-    ALREADY = 7,
-    BADF = 8,
-    BADMSG = 9,
-    BUSY = 10,
-    CANCELED = 11,
-    CHILD = 12,
-    CONNABORTED = 13,
-    CONNREFUSED = 14,
-    CONNRESET = 15,
-    DEADLK = 16,
-    DESTADDRREQ = 17,
-    DOM = 18,
-    DQUOT = 19,
-    EXIST = 20,
-    FAULT = 21,
-    FBIG = 22,
-    HOSTUNREACH = 23,
-    IDRM = 24,
-    ILSEQ = 25,
-    INPROGRESS = 26,
-    INTR = 27,
-    INVAL = 28,
-    IO = 29,
-    ISCONN = 30,
-    ISDIR = 31,
-    LOOP = 32,
-    MFILE = 33,
-    MLINK = 34,
-    MSGSIZE = 35,
-    MULTIHOP = 36,
-    NAMETOOLONG = 37,
-    NETDOWN = 38,
-    NETRESET = 39,
-    NETUNREACH = 40,
-    NFILE = 41,
-    NOBUFS = 42,
-    NODEV = 43,
-    NOENT = 44,
-    NOEXEC = 45,
-    NOLCK = 46,
-    NOLINK = 47,
-    NOMEM = 48,
-    NOMSG = 49,
-    NOPROTOOPT = 50,
-    NOSPC = 51,
-    NOSYS = 52,
-    NOTCONN = 53,
-    NOTDIR = 54,
-    NOTEMPTY = 55,
-    NOTRECOVERABLE = 56,
-    NOTSOCK = 57,
-    /// This is also the code used for `NOTSUP`.
-    OPNOTSUPP = 58,
-    NOTTY = 59,
-    NXIO = 60,
-    OVERFLOW = 61,
-    OWNERDEAD = 62,
-    PERM = 63,
-    PIPE = 64,
-    PROTO = 65,
-    PROTONOSUPPORT = 66,
-    PROTOTYPE = 67,
-    RANGE = 68,
-    ROFS = 69,
-    SPIPE = 70,
-    SRCH = 71,
-    STALE = 72,
-    TIMEDOUT = 73,
-    TXTBSY = 74,
-    XDEV = 75,
-    NOTCAPABLE = 76,
+    /// Operation not permitted
+    PERM = c.EPERM,
+    /// No such file or directory
+    NOENT = c.ENOENT,
+    /// No such process
+    SRCH = c.ESRCH,
+    /// Interrupted system call
+    INTR = c.EINTR,
+    /// I/O error
+    IO = c.EIO,
+    /// No such device or address
+    NXIO = c.ENXIO,
+    /// Arg list too long
+    @"2BIG" = c.E2BIG,
+    /// Exec format error
+    NOEXEC = c.ENOEXEC,
+    /// Bad file number
+    BADF = c.EBADF,
+    /// No child processes
+    CHILD = c.ECHILD,
+    /// Try again
+    /// Also means: WOULDBLOCK: operation would block
+    AGAIN = c.EAGAIN,
+    /// Out of memory
+    NOMEM = c.ENOMEM,
+    /// Permission denied
+    ACCES = c.EACCES,
+    /// Bad address
+    FAULT = c.EFAULT,
+    /// Block device required
+    /// Requires "__LINUX_ERRNO_EXTENSIONS__"
+    NOTBLK = 15,
+    /// Device or resource busy
+    BUSY = c.EBUSY,
+    /// File exists
+    EXIST = c.EEXIST,
+    /// Cross-device link
+    XDEV = c.EXDEV,
+    /// No such device
+    NODEV = c.ENODEV,
+    /// Not a directory
+    NOTDIR = c.ENOTDIR,
+    /// Is a directory
+    ISDIR = c.EISDIR,
+    /// Invalid argument
+    INVAL = c.EINVAL,
+    /// File table overflow
+    NFILE = c.ENFILE,
+    /// Too many open files
+    MFILE = c.EMFILE,
+    /// Not a typewriter
+    NOTTY = c.ENOTTY,
+    /// Text file busy
+    TXTBSY = c.ETXTBSY,
+    /// File too large
+    FBIG = c.EFBIG,
+    /// No space left on device
+    NOSPC = c.ENOSPC,
+    // /// Illegal seek
+    SPIPE = c.ESPIPE,
+    // /// Read-only file system
+    // ROFS = 30,
+    // /// Too many links
+    // MLINK = 31,
+    // /// Broken pipe
+    // PIPE = 32,
+    // /// Math argument out of domain of func
+    // DOM = 33,
+    // /// Math result not representable
+    // RANGE = 34,
+    // /// Resource deadlock would occur
+    // DEADLK = 35,
+    // /// File name too long
+    // NAMETOOLONG = 36,
+    // /// No record locks available
+    // NOLCK = 37,
+    // /// Function not implemented
+    // NOSYS = 38,
+    // /// Directory not empty
+    // NOTEMPTY = 39,
+    // /// Too many symbolic links encountered
+    // LOOP = 40,
+    // /// No message of desired type
+    // NOMSG = 42,
+    // /// Identifier removed
+    // IDRM = 43,
+    // /// Channel number out of range
+    // CHRNG = 44,
+    // /// Level 2 not synchronized
+    // L2NSYNC = 45,
+    // /// Level 3 halted
+    // L3HLT = 46,
+    // /// Level 3 reset
+    // L3RST = 47,
+    // /// Link number out of range
+    // LNRNG = 48,
+    // /// Protocol driver not attached
+    // UNATCH = 49,
+    // /// No CSI structure available
+    // NOCSI = 50,
+    // /// Level 2 halted
+    // L2HLT = 51,
+    // /// Invalid exchange
+    // BADE = 52,
+    // /// Invalid request descriptor
+    // BADR = 53,
+    // /// Exchange full
+    // XFULL = 54,
+    // /// No anode
+    // NOANO = 55,
+    // /// Invalid request code
+    // BADRQC = 56,
+    // /// Invalid slot
+    // BADSLT = 57,
+    // /// Bad font file format
+    // BFONT = 59,
+    // /// Device not a stream
+    // NOSTR = 60,
+    // /// No data available
+    // NODATA = 61,
+    // /// Timer expired
+    // TIME = 62,
+    // /// Out of streams resources
+    // NOSR = 63,
+    // /// Machine is not on the network
+    // NONET = 64,
+    // /// Package not installed
+    // NOPKG = 65,
+    // /// Object is remote
+    // REMOTE = 66,
+    // /// Link has been severed
+    // NOLINK = 67,
+    // /// Advertise error
+    // ADV = 68,
+    // /// Srmount error
+    // SRMNT = 69,
+    // /// Communication error on send
+    // COMM = 70,
+    // /// Protocol error
+    // PROTO = 71,
+    // /// Multihop attempted
+    // MULTIHOP = 72,
+    // /// RFS specific error
+    // DOTDOT = 73,
+    // /// Not a data message
+    // BADMSG = 74,
+    // /// Value too large for defined data type
+    OVERFLOW = c.EOVERFLOW, // 139
+    // /// Name not unique on network
+    // NOTUNIQ = 76,
+    // /// File descriptor in bad state
+    // BADFD = 77,
+    // /// Remote address changed
+    // REMCHG = 78,
+    // /// Can not access a needed shared library
+    // LIBACC = 79,
+    // /// Accessing a corrupted shared library
+    // LIBBAD = 80,
+    // /// .lib section in a.out corrupted
+    // LIBSCN = 81,
+    // /// Attempting to link in too many shared libraries
+    // LIBMAX = 82,
+    // /// Cannot exec a shared library directly
+    // LIBEXEC = 83,
+    // /// Illegal byte sequence
+    // ILSEQ = 84,
+    // /// Interrupted system call should be restarted
+    // RESTART = 85,
+    // /// Streams pipe error
+    // STRPIPE = 86,
+    // /// Too many users
+    // USERS = 87,
+    // /// Socket operation on non-socket
+    // NOTSOCK = 88,
+    // /// Destination address required
+    // DESTADDRREQ = 89,
+    // /// Message too long
+    // MSGSIZE = 90,
+    // /// Protocol wrong type for socket
+    // PROTOTYPE = 91,
+    // /// Protocol not available
+    // NOPROTOOPT = 92,
+    // /// Protocol not supported
+    // PROTONOSUPPORT = 93,
+    // /// Socket type not supported
+    // SOCKTNOSUPPORT = 94,
+    // /// Operation not supported on transport endpoint
+    // /// This code also means `NOTSUP`.
+    // OPNOTSUPP = 95,
+    // /// Protocol family not supported
+    // PFNOSUPPORT = 96,
+    // /// Address family not supported by protocol
+    // AFNOSUPPORT = 97,
+    // /// Address already in use
+    // ADDRINUSE = 98,
+    // /// Cannot assign requested address
+    // ADDRNOTAVAIL = 99,
+    // /// Network is down
+    // NETDOWN = 100,
+    // /// Network is unreachable
+    // NETUNREACH = 101,
+    // /// Network dropped connection because of reset
+    // NETRESET = 102,
+    // /// Software caused connection abort
+    // CONNABORTED = 103,
+    /// Connection reset by peer
+    CONNRESET = c.ECONNRESET,
+    /// No buffer space available
+    NOBUFS = c.ENOBUFS, // 105
+    // /// Transport endpoint is already connected
+    // ISCONN = 106,
+    // /// Transport endpoint is not connected
+    NOTCONN = c.ENOTCONN, // 128
+    // /// Cannot send after transport endpoint shutdown
+    // SHUTDOWN = 108,
+    // /// Too many references: cannot splice
+    // TOOMANYREFS = 109,
+    /// Connection timed out
+    TIMEDOUT = c.ETIMEDOUT, // 116
+    // /// Connection refused
+    // CONNREFUSED = 111,
+    // /// Host is down
+    // HOSTDOWN = 112,
+    // /// No route to host
+    // HOSTUNREACH = 113,
+    // /// Operation already in progress
+    // ALREADY = 114,
+    // /// Operation now in progress
+    // INPROGRESS = 115,
+    // /// Stale NFS file handle
+    // STALE = 116,
+    // /// Structure needs cleaning
+    // UCLEAN = 117,
+    // /// Not a XENIX named type file
+    // NOTNAM = 118,
+    // /// No XENIX semaphores available
+    // NAVAIL = 119,
+    // /// Is a named type file
+    // ISNAM = 120,
+    // /// Remote I/O error
+    // REMOTEIO = 121,
+    // /// Quota exceeded
+    // DQUOT = 122,
+    // /// No medium found
+    // NOMEDIUM = 123,
+    // /// Wrong medium type
+    // MEDIUMTYPE = 124,
+    // /// Operation canceled
+    // CANCELED = 125,
+    // /// Required key not available
+    // NOKEY = 126,
+    // /// Key has expired
+    // KEYEXPIRED = 127,
+    // /// Key has been revoked
+    // KEYREVOKED = 128,
+    // /// Key was rejected by service
+    // KEYREJECTED = 129,
+    // // for robust mutexes
+    // /// Owner died
+    // OWNERDEAD = 130,
+    // /// State not recoverable
+    // NOTRECOVERABLE = 131,
+    // /// Operation not possible due to RF-kill
+    // RFKILL = 132,
+    // /// Memory page has hardware error
+    // HWPOISON = 133,
+    // // nameserver query return codes
+    // /// DNS server returned answer with no data
+    // NSRNODATA = 160,
+    // /// DNS server claims query was misformatted
+    // NSRFORMERR = 161,
+    // /// DNS server returned general failure
+    // NSRSERVFAIL = 162,
+    // /// Domain name not found
+    // NSRNOTFOUND = 163,
+    // /// DNS server does not implement requested operation
+    // NSRNOTIMP = 164,
+    // /// DNS server refused query
+    // NSRREFUSED = 165,
+    // /// Misformatted DNS query
+    // NSRBADQUERY = 166,
+    // /// Misformatted domain name
+    // NSRBADNAME = 167,
+    // /// Unsupported address family
+    // NSRBADFAMILY = 168,
+    // /// Misformatted DNS reply
+    // NSRBADRESP = 169,
+    // /// Could not contact DNS servers
+    // NSRCONNREFUSED = 170,
+    // /// Timeout while contacting DNS servers
+    // NSRTIMEOUT = 171,
+    // /// End of file
+    // NSROF = 172,
+    // /// Error reading file
+    // NSRFILE = 173,
+    // /// Out of memory
+    // NSRNOMEM = 174,
+    // /// Application terminated lookup
+    // NSRDESTRUCTION = 175,
+    // /// Domain name is too long
+    // NSRQUERYDOMAINTOOLONG = 176,
+    // /// Domain name is too long
+    // NSRCNAMELOOP = 177,
     _,
 };
 
