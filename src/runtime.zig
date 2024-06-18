@@ -22,7 +22,7 @@ comptime {
         @export(stdwasi.clock_time_get, .{ .name = "clock_time_get", .linkage = .weak });
 
         // fs
-        // @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .strong });
+        @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .strong });
 
         if (!builtin.link_libc) {
             @export(main, .{ .name = "main", .linkage = .weak });
@@ -39,12 +39,73 @@ fn main(_: c_int, _: [*]const [*:0]const u8) callconv(.C) void {
     _ = std.start.callMain();
 }
 
+const Dir = struct {
+    fd_t: c_int,
+    dir: ?*c.DIR,
+};
+
+const dir_fd_base = 5000;
+
+var dir_fd_list = [_]Dir{
+    .{ .fd_t = dir_fd_base + 0, .dir = null },
+    .{ .fd_t = dir_fd_base + 1, .dir = null },
+    .{ .fd_t = dir_fd_base + 2, .dir = null },
+    .{ .fd_t = dir_fd_base + 3, .dir = null },
+};
+
 /// openat is polyfilled as it doesn't have an implementation for devkitPPC
-fn openat(dirfd: c_int, pathname: [*c]const u8, flags: c_int, _: std.posix.mode_t) callconv(.C) c_int {
+fn openat(dirfd: c_int, pathname: [*c]const u8, flags_: c_int, _: std.posix.mode_t) callconv(.C) c_int {
     // TODO(jae): 2024-06-02
     // Make this actually use dirfd
     _ = dirfd; // autofix
+
+    // Convert wasi.O flags into the C library flags if targetting wasi
+    var flags: c_int = 0;
+    if (builtin.os.tag == .wasi) {
+        const wasi_flags: stdwasi.O = @bitCast(flags_);
+
+        // set flags
+        if (wasi_flags.APPEND) flags |= c.O_APPEND;
+        if (wasi_flags.write and wasi_flags.read) {
+            flags |= c.O_RDWR;
+        } else {
+            if (wasi_flags.write) flags |= c.O_WRONLY;
+            if (wasi_flags.read) flags |= c.O_RDONLY;
+        }
+        if (wasi_flags.DIRECTORY) flags |= c.O_DIRECTORY;
+    } else {
+        flags = flags_;
+    }
+
+    // If opening directory, use hack and provide our own special "fd" in a reserved range
+    if (flags & c.O_DIRECTORY != 0) {
+        const dirname: [*c]const u8 = if (pathname[0] == 0) "." else pathname;
+        const dir = c.opendir(dirname);
+        if (dir == null) {
+            // TODO: If building with .wasi, convert errcode from c_type.E to wasi.E
+            return -1;
+        }
+        var found_dir_fd: ?*Dir = null;
+        for (&dir_fd_list) |*dir_fd| {
+            if (dir_fd.dir == null) {
+                found_dir_fd = dir_fd;
+                break;
+            }
+        }
+        const dir_fd = found_dir_fd orelse {
+            set_errno(.NFILE);
+            return -1;
+        };
+        dir_fd.dir = dir;
+        return dir_fd.fd_t;
+    }
+
+    // Open file
     const file = c.open(pathname, flags);
+    if (file == -1) {
+        // TODO: If building with .wasi, convert errcode from c_type.E to wasi.E
+        return -1;
+    }
     return file;
 }
 
@@ -85,9 +146,14 @@ fn write(fd: i32, buf_ptr: [*]const u8, count: usize) callconv(.C) isize {
         // }
         // return @intCast(count);
     }
-    return struct {
+    const nwritten = struct {
         extern fn __real_write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
     }.__real_write(fd, buf_ptr, count);
+    if (nwritten == -1) {
+        // TODO: If building with .wasi, convert errcode from c_type.E to wasi.E
+        return -1;
+    }
+    return nwritten;
 }
 
 // https://github.com/devkitPro/libogc/blob/78972332fad6c2c2e04a5cfedb26edb2853b4251/gc/ogc/lwp_watchdog.h#L35
@@ -128,9 +194,20 @@ fn clock_gettime(clk_id: c_int, tp: *std.posix.timespec) callconv(.C) c_int {
         tp.tv_nsec = @intCast(@mod(ticks_to_nanosecs(now), TB_NSPERSEC));
         return 0;
     }
+    // NOTE(jae): 2024-06-18
+    // We're wrapping clock_gettime so we shouldn't convert the error code from c_type.E to wasi.C
+    // as other C code could call this.
+    //
+    // Also Wasi targets call "clock_time_get" anyway
     return struct {
         extern fn __real_clock_gettime(clk_id: c_int, tp: *std.posix.timespec) c_int;
     }.__real_clock_gettime(clk_id, tp);
+}
+
+fn set_errno(new_errno: stdwasi.errno_t) void {
+    struct {
+        extern threadlocal var errno: c_int;
+    }.errno = @intFromEnum(new_errno);
 }
 
 /// provide os.tag == .wasi functions
@@ -145,6 +222,26 @@ const stdwasi = struct {
     const whence_t = wasi.whence_t;
     const filesize_t = wasi.filesize_t;
 
+    const O = packed struct(u32) {
+        APPEND: bool = false,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false,
+        RSYNC: bool = false,
+        SYNC: bool = false,
+        _5: u7 = 0,
+        CREAT: bool = false,
+        DIRECTORY: bool = false,
+        EXCL: bool = false,
+        TRUNC: bool = false,
+        _16: u8 = 0,
+        NOFOLLOW: bool = false,
+        EXEC: bool = false,
+        read: bool = false,
+        SEARCH: bool = false,
+        write: bool = false,
+        _: u3 = 0,
+    };
+
     /// errno_wasi calls the underlying Wii toolchain errno for builds targetting .wasi
     fn errno_wasi() callconv(.C) *c_int {
         const _errno = struct {
@@ -153,9 +250,9 @@ const stdwasi = struct {
         return _errno();
     }
 
-    /// errno_c uses the c_type.E rather than posix
+    /// errno_c uses the c_type.E rather than posix or wasi as they're C calls
     fn errno_c(rc: anytype) c_type.E {
-        return if (rc == -1) @enumFromInt(rc) else .SUCCESS;
+        return if (rc == -1) @enumFromInt(errno_wasi().*) else .SUCCESS;
     }
 
     /// clock_time_get calls gettime() from the Wii toolchain to get the nanoseconds
@@ -170,15 +267,66 @@ const stdwasi = struct {
         return wasi.errno_t.SUCCESS;
     }
 
-    // TODO: Implement for wasi
-    // fn fd_readdir(fd: wasi.fd_t, buf: [*]u8, buf_len: usize, cookie: wasi.dircookie_t, bufused: *usize) callconv(.C) wasi.errno_t {
-    //     _ = fd; // autofix
-    //     _ = buf; // autofix
-    //     _ = buf_len; // autofix
-    //     _ = cookie; // autofix
-    //     _ = bufused; // autofix
-    //     return wasi.errno_t.FAULT;
-    // }
+    fn fd_readdir(fd: wasi.fd_t, buf_ptr: [*]u8, buf_len: usize, cookie: wasi.dircookie_t, bufused: *usize) callconv(.C) wasi.errno_t {
+        _ = cookie; // autofix
+        if (fd < dir_fd_base) {
+            // NOTE(jae): 2024-18-06
+            // Zig currently crashes if you provide .BADF so we do this
+            return wasi.errno_t.NOTCAPABLE;
+        }
+        var found_dir_fd: ?*Dir = null;
+        for (&dir_fd_list) |*dir_fd| {
+            if (dir_fd.fd_t == fd) {
+                found_dir_fd = dir_fd;
+                break;
+            }
+        }
+        const dir_fd = found_dir_fd orelse {
+            return wasi.errno_t.NOTCAPABLE;
+        };
+        var buf_index: u32 = 0;
+        while (true) {
+            set_errno(.SUCCESS); // Set errno to zero to distinguish errors when calling readdir and it returns NULL
+            const it: *c.dirent = c.readdir(dir_fd.dir) orelse {
+                const errno = errno_c(-1);
+                if (errno == .SUCCESS) {
+                    bufused.* = 0;
+                    return .SUCCESS;
+                }
+                // TODO: translate from c_type.E to wasi
+                return .BADF;
+            };
+            var buf = buf_ptr[0..buf_len];
+            const name = std.mem.span(@as([*:0]u8, @ptrCast(it.d_name[0..])));
+            const entry_and_name_len = @sizeOf(wasi.dirent_t) + name.len;
+            const entry: wasi.dirent_t = .{
+                .ino = it.d_ino, // TODO(jae): provide ino
+                .namlen = @intCast(name.len),
+                .next = buf_index + entry_and_name_len,
+                .type = switch (it.d_type) {
+                    c.DT_REG => .REGULAR_FILE,
+                    c.DT_DIR => .DIRECTORY,
+                    else => unreachable,
+                },
+            };
+            if (buf_index + entry_and_name_len >= buf.len) {
+                std.debug.panic("TODO: fix this", .{});
+                // @memcpy(buf[0..name.len], name);
+                break;
+            }
+            @memcpy(buf[buf_index .. buf_index + @sizeOf(wasi.dirent_t)], std.mem.asBytes(&entry));
+            buf_index += @sizeOf(wasi.dirent_t);
+
+            const dest_name = buf[buf_index .. buf_index + name.len];
+            @memcpy(dest_name, name);
+            buf_index += name.len;
+
+            // TODO: keep going till buffer full
+            break;
+        }
+        bufused.* += buf_index;
+        return .SUCCESS;
+    }
 
     fn fd_write(fd: fd_t, iovs: [*]const ciovec_t, iovs_len: usize, nwritten: *usize) callconv(.C) errno_t {
         const c_write = struct {

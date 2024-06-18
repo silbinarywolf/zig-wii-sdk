@@ -96,8 +96,8 @@ pub const StaticLib = struct {
 
 pub fn addInstallWiiArtifact(compile: *std.Build.Step.Compile) std.Build.LazyPath {
     const b = compile.root_module.owner;
-    if (compile.kind != .obj) {
-        @panic("expected Wii compile step artifact to be .obj");
+    if (compile.kind != .obj and compile.kind != .lib) {
+        @panic("expected Wii compile step artifact to be .obj or .lib");
     }
     return buildExecutable(b, compile) catch |err| @panic(@errorName(err));
 }
@@ -129,7 +129,7 @@ pub const ExecutableOptions = struct {
 
 pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.Compile {
     const target = options.target;
-    return b.addObject(.{
+    const exe = b.addObject(.{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .optimize = options.optimize,
@@ -140,6 +140,13 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
         // Polyfill WASI-specific functions if targetting wasi
         .pic = if (target.result.os.tag == .wasi) true else null,
     });
+    exe.bundle_compiler_rt = true; // fixes missing "__nekf2", etc when using std.json
+    if (options.link_libc) |link_libc| {
+        if (!link_libc) {
+            exe.wasi_exec_model = .reactor; // hack to avoid clash with _start from libogc
+        }
+    }
+    return exe;
 }
 
 /// getOutputPath
