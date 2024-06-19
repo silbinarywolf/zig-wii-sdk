@@ -223,14 +223,19 @@ fn set_system_errno(new_errno: std.posix.E) void {
     }.errno = @intFromEnum(new_errno);
 }
 
-const exception_xfb = 0xC1700000;
+const libogcinternal = struct {
+    const exception_xfb: *anyopaque = @ptrFromInt(0xC1700000);
+
+    extern fn VIDEO_SetFramebuffer(fb: *anyopaque) callconv(.C) void;
+    extern fn __console_init(framebuffer: *anyopaque, xstart: c_int, ystart: c_int, xres: c_int, yres: c_int, stride: c_int) callconv(.C) void;
+};
 
 // panic based off of libogc exception handler https://github.com/devkitPro/libogc/blob/master/libogc/exception.c
 pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace; // autofix
     c.GX_AbortFrame();
-    // c.VIDEO_SetFramebuffer(exception_xfb);
-    // c.__console_init(exception_xfb, 20, 20, 640, 574, 1280);
+    libogcinternal.VIDEO_SetFramebuffer(libogcinternal.exception_xfb);
+    libogcinternal.__console_init(libogcinternal.exception_xfb, 20, 20, 640, 574, 1280);
     c.CON_EnableGecko(1, 1);
 
     c.kprintf("\n\n\n\tZig Panic occurred!\n");
@@ -395,10 +400,10 @@ const stdwasi = struct {
 
         while (true) {
             set_errno(.SUCCESS); // Set errno to zero to distinguish errors when calling readdir and it returns NULL
-            const it: *c.dirent = c.readdir(dir_fd.dir) orelse {
+            const it: *c.dirent = @as(?*c.dirent, c.readdir(dir_fd.dir)) orelse {
                 const errno = errno_c(-1);
                 if (errno == .SUCCESS) {
-                    bufused.* = 0;
+                    bufused.* = buf_index;
                     return .SUCCESS;
                 }
                 // TODO: translate from c_type.E to wasi
