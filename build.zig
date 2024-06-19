@@ -325,10 +325,16 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
         // wrap calls to "write" in std library so we can monkey patch it and make any STDOUT/STDERR logging
         // call "printf" instead so they appear in Dolphin emulator debug logs
         "-Wl,-wrap,write",
+    }));
+
+    const target = exe.root_module.resolved_target.?.result;
+
+    // Don't wrap for wasi target as Zig will call the wasi functions "clock_time_get" instead
+    if (target.os.tag != .wasi) {
         // wrap clock_gettime to as otherwise clock_gettime just returns an error code which just causes a crash if
         // you use std.time.Timer.start()
-        "-Wl,-wrap,clock_gettime",
-    }));
+        gcc.addArg("-Wl,-wrap,clock_gettime");
+    }
 
     // add optimization flag
     if (exe.root_module.optimize) |optimize| {
