@@ -140,7 +140,8 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
         // Polyfill WASI-specific functions if targetting wasi
         .pic = if (target.result.os.tag == .wasi) true else null,
         // Strip debugging info to avoid errors with stack dumping functions
-        .strip = true,
+        // WARNING: Making this true will map the output *.map file useless when used with "zig build line -- [ADDR HERE]"
+        // .strip = true,
     });
     exe.bundle_compiler_rt = true; // fixes missing "__nekf2", etc when using std.json
     if (options.link_libc) |link_libc| {
