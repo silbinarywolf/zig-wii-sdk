@@ -224,14 +224,73 @@ fn set_system_errno(new_errno: std.posix.E) void {
 }
 
 const libogcinternal = struct {
+    /// original comment: we use a static address above ArenaHi.
     const exception_xfb: *anyopaque = @ptrFromInt(0xC1700000);
 
     extern fn VIDEO_SetFramebuffer(fb: *anyopaque) callconv(.C) void;
     extern fn __console_init(framebuffer: *anyopaque, xstart: c_int, ystart: c_int, xres: c_int, yres: c_int, stride: c_int) callconv(.C) void;
+    extern fn udelay(us: c_int) void;
+
+    extern fn __lwp_thread_currentid() callconv(.C) c_uint;
+    extern fn __lwp_thread_context(thr_id: c_uint) callconv(.C) *c.frame_context;
+    extern fn c_default_exceptionhandler(pCtx: *c.frame_context) callconv(.C) void;
+
+    const kprintf = c.kprintf;
+
+    const CPU_STACK_TRACE_DEPTH = 10;
+
+    const frame_rec_t = extern struct {
+        up: ?*frame_rec_t,
+        lr: *anyopaque,
+    };
+
+    fn _cpu_print_stack(pc: u32, lr: u32, r1: u32) callconv(.C) void {
+        _ = r1; // autofix
+        kprintf("\n\tSTACK DUMP:");
+
+        const l = @as(?*frame_rec_t, @ptrFromInt(lr)) orelse {
+            return;
+        };
+        var p: *frame_rec_t = l;
+
+        var i: u32 = 0;
+        while (i < CPU_STACK_TRACE_DEPTH - 1 and p.up != null) {
+            if (i % 4 != 0) {
+                kprintf(" --> ");
+            } else {
+                if (i > 0) kprintf(" -->\n\t") else kprintf("\n\t");
+            }
+
+            switch (i) {
+                0 => {
+                    if (pc != 0) kprintf("%p", pc);
+                },
+                1 => {
+                    //if(!l) l = (frame_rec_t)mfspr(8);
+                    // kprintf("%p",(void*)l);
+                },
+                else => {
+                    //kprintf("%p",(void*)(p->up->lr));
+                },
+            }
+            i += 1;
+            p = p.up orelse {
+                break;
+            };
+        }
+    }
+    // frame_context* __lwp_thread_context(lwp_t thr_id)
 };
 
-// panic based off of libogc exception handler https://github.com/devkitPro/libogc/blob/master/libogc/exception.c
+// panic based off of libogc exception handler:
+// https://github.com/devkitPro/libogc/blob/69f62bb4e32ce8119cfa793367ab13087d354bd1/libogc/exception.c
 pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    if (true) {
+        const thr_id = libogcinternal.__lwp_thread_currentid();
+        const pCtx = libogcinternal.__lwp_thread_context(thr_id);
+        libogcinternal.c_default_exceptionhandler(pCtx);
+    }
+
     _ = stack_trace; // autofix
     c.GX_AbortFrame();
     libogcinternal.VIDEO_SetFramebuffer(libogcinternal.exception_xfb);
@@ -240,6 +299,11 @@ pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) 
 
     c.kprintf("\n\n\n\tZig Panic occurred!\n");
     std.debug.print("panic: {s}", .{msg});
+
+    const thr_id = libogcinternal.__lwp_thread_currentid();
+    const pCtx = libogcinternal.__lwp_thread_context(thr_id);
+
+    libogcinternal._cpu_print_stack(pCtx.SRR0, pCtx.LR, pCtx.GPR[1]);
 
     while (true) {
         // c.PAD_ScanPads();
@@ -264,7 +328,7 @@ pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) 
         // #endif
         // 		}
 
-        // std.time.sleep(20000);
+        libogcinternal.udelay(20000);
 
         // if(reload_timer > 0)
         // 	reload_timer--;

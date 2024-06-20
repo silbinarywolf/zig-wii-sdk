@@ -139,6 +139,8 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
         // TODO(jae): 2024-06-12
         // Polyfill WASI-specific functions if targetting wasi
         .pic = if (target.result.os.tag == .wasi) true else null,
+        // Strip debugging info to avoid errors with stack dumping functions
+        .strip = true,
     });
     exe.bundle_compiler_rt = true; // fixes missing "__nekf2", etc when using std.json
     if (options.link_libc) |link_libc| {
