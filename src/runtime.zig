@@ -475,6 +475,10 @@ const stdwasi = struct {
             };
             const name = std.mem.span(@as([*:0]u8, @ptrCast(it.d_name[0..])));
             const entry_and_name_len = @sizeOf(wasi.dirent_t) + name.len;
+            if (buf_index + entry_and_name_len >= buf.len) {
+                dir_fd.dirent = it;
+                break;
+            }
             const entry: wasi.dirent_t = .{
                 .ino = it.d_ino,
                 .namlen = @intCast(name.len),
@@ -485,10 +489,6 @@ const stdwasi = struct {
                     else => unreachable,
                 },
             };
-            if (buf_index + entry_and_name_len >= buf.len) {
-                dir_fd.dirent = it;
-                break;
-            }
             @memcpy(buf[buf_index .. buf_index + @sizeOf(wasi.dirent_t)], std.mem.asBytes(&entry));
             buf_index += @sizeOf(wasi.dirent_t);
 
