@@ -21,7 +21,8 @@ comptime {
         @export(stdwasi.clock_time_get, .{ .name = "clock_time_get", .linkage = .weak });
 
         // fs
-        @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .strong });
+        @export(stdwasi.path_open, .{ .name = "path_open", .linkage = .weak });
+        @export(stdwasi.fd_readdir, .{ .name = "fd_readdir", .linkage = .weak });
 
         if (!builtin.link_libc) {
             @export(main, .{ .name = "main", .linkage = .weak });
@@ -242,6 +243,9 @@ const libogcinternal = struct {
         lr: *anyopaque,
     };
 
+    // TODO(jae): 2024-06-23
+    // Figure out how this works, the C code is doing something with assembly code I don't
+    // understand, would need that to work if we want to handle the stack trace print ourselves.
     fn _cpu_print_stack(pc: u32, lr: u32, r1: u32) callconv(.C) void {
         _ = r1; // autofix
         kprintf("\n\tSTACK DUMP:");
@@ -283,11 +287,14 @@ const libogcinternal = struct {
 // panic based off of libogc exception handler:
 // https://github.com/devkitPro/libogc/blob/69f62bb4e32ce8119cfa793367ab13087d354bd1/libogc/exception.c
 pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    if (true) {
-        const thr_id = libogcinternal.__lwp_thread_currentid();
-        const pCtx = libogcinternal.__lwp_thread_context(thr_id);
-        libogcinternal.c_default_exceptionhandler(pCtx);
-    }
+    // NOTE(jae): 2024-06-23
+    // Hack to just get us stack traces when std.debug.panic is called, unfortunately this
+    // method doesn't allow me to print the "msg" from this scope which is very useful
+    // if (true) {
+    //     const thr_id = libogcinternal.__lwp_thread_currentid();
+    //     const pCtx = libogcinternal.__lwp_thread_context(thr_id);
+    //     libogcinternal.c_default_exceptionhandler(pCtx);
+    // }
 
     _ = stack_trace; // autofix
     c.GX_AbortFrame();
@@ -300,8 +307,11 @@ pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) 
 
     const thr_id = libogcinternal.__lwp_thread_currentid();
     const pCtx = libogcinternal.__lwp_thread_context(thr_id);
+    _ = pCtx; // autofix
 
-    libogcinternal._cpu_print_stack(pCtx.SRR0, pCtx.LR, pCtx.GPR[1]);
+    // NOTE(jae): 2024-06-23
+    // Cannot call cpu_print_stack as it's a static function in the exception.c file
+    // libogcinternal._cpu_print_stack(pCtx.SRR0, pCtx.LR, pCtx.GPR[1]);
 
     while (true) {
         // c.PAD_ScanPads();
@@ -413,6 +423,23 @@ const stdwasi = struct {
         return wasi.errno_t.SUCCESS;
     }
 
+    // TODO: implement this for file writing as Zig currently doesn't fallback to C implementation
+    // https://github.com/silbinarywolf/zig-wii-sdk/issues/5
+    fn path_open(dirfd: wasi.fd_t, dirflags: wasi.lookupflags_t, path: [*]const u8, path_len: usize, oflags: wasi.oflags_t, fs_rights_base: wasi.rights_t, fs_rights_inheriting: wasi.rights_t, fs_flags: wasi.fdflags_t, fd: *wasi.fd_t) callconv(.C) wasi.errno_t {
+        // TODO: Implement path_open for file writing
+        _ = dirfd; // autofix
+        _ = dirflags; // autofix
+        _ = path; // autofix
+        _ = path_len; // autofix
+        _ = oflags; // autofix
+        _ = fs_rights_base; // autofix
+        _ = fs_rights_inheriting; // autofix
+        _ = fs_flags; // autofix
+        _ = fd; // autofix
+        return .FAULT;
+    }
+
+    // TODO(jae): We should monkey patch "close()" so that we can properly close directory fds created with "openat"
     fn fd_readdir(fd: wasi.fd_t, buf_ptr: [*]u8, buf_len: usize, cookie: wasi.dircookie_t, bufused: *usize) callconv(.C) wasi.errno_t {
         // std.debug.print("fd_readdir patch\n", .{});
         _ = cookie; // autofix
