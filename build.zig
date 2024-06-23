@@ -317,7 +317,9 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
         // "-z noexecstack", resolves warning: "missing .note.GNU-stack section implies executable stack"
         "-z",
         "noexecstack",
-        "-g",
+        // "-nolibc", // libogc/etc requires libc, so we can't really do this
+        "-g", // add debug info
+        // "-gdwarf-3", // specify DWARF version 3 as Zig uses it
         "-DGEKKO",
         // search patch for rvl for changes made to gcc
         // https://raw.githubusercontent.com/devkitPro/buildscripts/c62e968c1eff366ed0c3812b59a4c4aa544bf87f/dkppc/patches/gcc-13.2.0.patch
