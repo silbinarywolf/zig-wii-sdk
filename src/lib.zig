@@ -6,3 +6,6 @@ const c = @import("c/os.zig");
 
 // runtime adds additional functions so that Zig standard functions will work on the Wii
 pub const runtime = @import("runtime.zig");
+
+/// panic is a custom panic handler to exit on error
+pub const panic = runtime.panic;

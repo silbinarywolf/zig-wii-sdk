@@ -96,8 +96,8 @@ pub const StaticLib = struct {
 
 pub fn addInstallWiiArtifact(compile: *std.Build.Step.Compile) std.Build.LazyPath {
     const b = compile.root_module.owner;
-    if (compile.kind != .obj) {
-        @panic("expected Wii compile step artifact to be .obj");
+    if (compile.kind != .obj and compile.kind != .lib) {
+        @panic("expected Wii compile step artifact to be .obj or .lib");
     }
     return buildExecutable(b, compile) catch |err| @panic(@errorName(err));
 }
@@ -129,7 +129,7 @@ pub const ExecutableOptions = struct {
 
 pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.Compile {
     const target = options.target;
-    return b.addObject(.{
+    const exe = b.addObject(.{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .optimize = options.optimize,
@@ -139,7 +139,17 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
         // TODO(jae): 2024-06-12
         // Polyfill WASI-specific functions if targetting wasi
         .pic = if (target.result.os.tag == .wasi) true else null,
+        // Strip debugging info to avoid errors with stack dumping functions
+        // WARNING: Making this true will map the output *.map file useless when used with "zig build line -- [ADDR HERE]"
+        // .strip = true,
     });
+    exe.bundle_compiler_rt = true; // fixes missing "__nekf2", etc when using std.json
+    if (options.link_libc) |link_libc| {
+        if (!link_libc) {
+            exe.wasi_exec_model = .reactor; // hack to avoid clash with _start from libogc
+        }
+    }
+    return exe;
 }
 
 /// getOutputPath
@@ -307,7 +317,9 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
         // "-z noexecstack", resolves warning: "missing .note.GNU-stack section implies executable stack"
         "-z",
         "noexecstack",
-        "-g",
+        // "-nolibc", // libogc/etc requires libc, so we can't really do this
+        "-g", // add debug info
+        // "-gdwarf-3", // specify DWARF version 3 as Zig uses it
         "-DGEKKO",
         // search patch for rvl for changes made to gcc
         // https://raw.githubusercontent.com/devkitPro/buildscripts/c62e968c1eff366ed0c3812b59a4c4aa544bf87f/dkppc/patches/gcc-13.2.0.patch
@@ -318,10 +330,16 @@ fn buildExecutable(b: *std.Build, exe: *std.Build.Step.Compile) !std.Build.LazyP
         // wrap calls to "write" in std library so we can monkey patch it and make any STDOUT/STDERR logging
         // call "printf" instead so they appear in Dolphin emulator debug logs
         "-Wl,-wrap,write",
+    }));
+
+    const target = exe.root_module.resolved_target.?.result;
+
+    // Don't wrap for wasi target as Zig will call the wasi functions "clock_time_get" instead
+    if (target.os.tag != .wasi) {
         // wrap clock_gettime to as otherwise clock_gettime just returns an error code which just causes a crash if
         // you use std.time.Timer.start()
-        "-Wl,-wrap,clock_gettime",
-    }));
+        gcc.addArg("-Wl,-wrap,clock_gettime");
+    }
 
     // add optimization flag
     if (exe.root_module.optimize) |optimize| {
