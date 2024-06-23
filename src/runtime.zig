@@ -217,10 +217,8 @@ fn clock_gettime(clk_id: c_int, tp: *std.posix.timespec) callconv(.C) c_int {
     }.__real_clock_gettime(clk_id, tp);
 }
 
-fn set_system_errno(new_errno: std.posix.E) void {
-    struct {
-        extern threadlocal var errno: c_int;
-    }.errno = @intFromEnum(new_errno);
+fn set_system_errno(new_errno: c_type.E) void {
+    stdwasi.errno_export().* = @intFromEnum(new_errno);
 }
 
 const libogcinternal = struct {
@@ -389,10 +387,10 @@ const stdwasi = struct {
             .IO => .IO,
             else => .FAULT, // TODO: Handle other conversions
         };
-        set_errno(wasi_errno);
+        set_wasi_errno(wasi_errno);
     }
 
-    fn set_errno(new_errno: stdwasi.errno_t) void {
+    fn set_wasi_errno(new_errno: stdwasi.errno_t) void {
         struct {
             extern threadlocal var errno: c_int;
         }.errno = @intFromEnum(new_errno);
@@ -416,6 +414,7 @@ const stdwasi = struct {
     }
 
     fn fd_readdir(fd: wasi.fd_t, buf_ptr: [*]u8, buf_len: usize, cookie: wasi.dircookie_t, bufused: *usize) callconv(.C) wasi.errno_t {
+        // std.debug.print("fd_readdir patch\n", .{});
         _ = cookie; // autofix
         if (fd < dir_fd_base) {
             // NOTE(jae): 2024-18-06
@@ -443,6 +442,9 @@ const stdwasi = struct {
             // add entry
             const name = std.mem.span(@as([*:0]u8, @ptrCast(it.d_name[0..])));
             const entry_and_name_len = @sizeOf(wasi.dirent_t) + name.len;
+
+            // std.debug.print("prev_dirent details: name: {s}, len: {}\n", .{ name, name.len });
+
             const entry: wasi.dirent_t = .{
                 .ino = it.d_ino,
                 .namlen = @intCast(name.len),
@@ -463,7 +465,8 @@ const stdwasi = struct {
         }
 
         while (true) {
-            set_errno(.SUCCESS); // Set errno to zero to distinguish errors when calling readdir and it returns NULL
+            // Set errno to zero to distinguish errors when calling readdir and it returns NULL
+            set_system_errno(.SUCCESS);
             const it: *c.dirent = @as(?*c.dirent, c.readdir(dir_fd.dir)) orelse {
                 const errno = errno_c(-1);
                 if (errno == .SUCCESS) {
@@ -476,6 +479,7 @@ const stdwasi = struct {
             const name = std.mem.span(@as([*:0]u8, @ptrCast(it.d_name[0..])));
             const entry_and_name_len = @sizeOf(wasi.dirent_t) + name.len;
             if (buf_index + entry_and_name_len >= buf.len) {
+                // std.debug.print("out of buffer: {}, bufused: {}\n", .{ buf_index + entry_and_name_len, buf_index });
                 dir_fd.dirent = it;
                 break;
             }
@@ -496,7 +500,7 @@ const stdwasi = struct {
             @memcpy(dest_name, name);
             buf_index += name.len;
         }
-        bufused.* += buf_index;
+        bufused.* = buf_index;
         return .SUCCESS;
     }
 
